@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isUser(uid) {
+      return request.auth.uid == uid;
+    }
+    function isHouseholdMember(householdId) {
+      return exists(/databases/$(database)/documents/householdMembers/$(householdId + '_' + request.auth.uid));
+    }
+    function isHouseholdAdmin(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId)).data.adminId == request.auth.uid;
+    }
+
+    // Users
+    match /users/{uid} {
+      allow read: if isAuth();
+      allow create: if isUser(uid);
+      allow update: if isUser(uid);
+      allow delete: if false;
+    }
+
+    // Households
+    match /households/{householdId} {
+      allow read: if isAuth() && isHouseholdMember(householdId);
+      allow create: if isAuth();
+      allow update: if isHouseholdAdmin(householdId);
+      allow delete: if isHouseholdAdmin(householdId);
+
+      // Tasks subcollection
+      match /tasks/{taskId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId);
+        allow update: if isHouseholdMember(householdId);
+        allow delete: if isHouseholdAdmin(householdId);
+      }
+
+      // Invitations subcollection
+      match /invitations/{invitationId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId);
+        allow update: if isAuth(); // recipient can accept/decline
+        allow delete: if isHouseholdAdmin(householdId);
+      }
+    }
+
+    // Household Members
+    match /householdMembers/{memberId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isHouseholdAdmin(resource.data.householdId);
+      allow delete: if isHouseholdAdmin(resource.data.householdId)
+                    || isUser(resource.data.userId); // member can leave
+    }
+  }
+}
