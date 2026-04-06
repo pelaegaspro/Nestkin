@@ -43,3 +43,24 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase
+node_modules/
+functions/node_modules/
+.firebase/
+**/firebase-debug.log
+**/firestore-debug.log
+**/ui-debug.log
+
+# Nestkin Specific Ignores
+lib/firebase_options.dart
+lib/firebase_options.g.dart
+
+# Build logs
+*.log
+analyze.txt
+build_error.txt
+detailed_build_fail.log
+errors.txt
+hs_err_pid*.log
+out.txt
