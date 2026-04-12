@@ -8,6 +8,10 @@ class HouseholdMemberModel {
   final Map<String, dynamic> user;
   final String role;
   final String status;
+  final String? color;
+  final int totalPoints;
+  final int weeklyPoints;
+  final List<String> badges;
   final Timestamp joinedAt;
 
   HouseholdMemberModel({
@@ -18,6 +22,10 @@ class HouseholdMemberModel {
     required this.user,
     required this.role,
     required this.status,
+    this.color,
+    required this.totalPoints,
+    required this.weeklyPoints,
+    required this.badges,
     required this.joinedAt,
   });
 
@@ -29,6 +37,10 @@ class HouseholdMemberModel {
         'user': user,
         'role': role,
         'status': status,
+        'color': color,
+        'totalPoints': totalPoints,
+        'weeklyPoints': weeklyPoints,
+        'badges': badges,
         'joinedAt': joinedAt,
       };
 
@@ -40,6 +52,10 @@ class HouseholdMemberModel {
         user: Map<String, dynamic>.from(map['user'] ?? {}),
         role: map['role'] ?? 'member',
         status: map['status'] ?? 'active',
+        color: map['color'],
+        totalPoints: map['totalPoints'] ?? 0,
+        weeklyPoints: map['weeklyPoints'] ?? 0,
+        badges: List<String>.from(map['badges'] ?? const []),
         joinedAt: map['joinedAt'] ?? Timestamp.now(),
       );
 }

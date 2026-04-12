@@ -1,60 +1,254 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
     function isAuth() {
       return request.auth != null;
     }
+
     function isUser(uid) {
-      return request.auth.uid == uid;
-    }
-    function isHouseholdMember(householdId) {
-      return exists(/databases/$(database)/documents/householdMembers/$(householdId + '_' + request.auth.uid));
-    }
-    function isHouseholdAdmin(householdId) {
-      return get(/databases/$(database)/documents/households/$(householdId)).data.adminId == request.auth.uid;
+      return isAuth() && request.auth.uid == uid;
     }
 
-    // Users
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function targetUserDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function targetUserExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userPhone() {
+      return userDoc().data.phoneNumber;
+    }
+
+    function householdDoc(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId));
+    }
+
+    function householdHasMembersField(householdId) {
+      return 'members' in householdDoc(householdId).data;
+    }
+
+    function memberDoc(householdId, uid) {
+      return get(/databases/$(database)/documents/householdMembers/$(householdId + '_' + uid));
+    }
+
+    function memberDocExists(householdId, uid) {
+      return exists(/databases/$(database)/documents/householdMembers/$(householdId + '_' + uid));
+    }
+
+    function memberRole(householdId, uid) {
+      return memberDoc(householdId, uid).data.role;
+    }
+
+    function isHouseholdMember(householdId) {
+      return isAuth() && (
+        (householdHasMembersField(householdId) &&
+          request.auth.uid in householdDoc(householdId).data.members) ||
+        memberDocExists(householdId, request.auth.uid)
+      );
+    }
+
+    function isHouseholdAdmin(householdId) {
+      return isAuth() && householdDoc(householdId).data.adminId == request.auth.uid;
+    }
+
+    function isHouseholdParentOrAdmin(householdId) {
+      return isAuth() && memberDocExists(householdId, request.auth.uid) &&
+        (memberRole(householdId, request.auth.uid) in ['admin', 'parent']);
+    }
+
+    function isHouseholdChild(householdId) {
+      return isAuth() && memberDocExists(householdId, request.auth.uid) &&
+        memberRole(householdId, request.auth.uid) == 'child';
+    }
+
+    function isInvitationRecipient() {
+      return isAuth() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        resource.data.recipientPhoneNumber == userPhone();
+    }
+
+    function sharesHouseholdWith(uid) {
+      return isAuth() &&
+        targetUserExists(uid) &&
+        targetUserDoc(uid).data.currentHouseholdId != null &&
+        isHouseholdMember(targetUserDoc(uid).data.currentHouseholdId);
+    }
+
+    function isAdminClearingUserHousehold(uid) {
+      return isAuth() &&
+        targetUserExists(uid) &&
+        resource.data.currentHouseholdId != null &&
+        isHouseholdAdmin(resource.data.currentHouseholdId) &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['currentHouseholdId', 'lastActiveAt']) &&
+        request.resource.data.currentHouseholdId == null;
+    }
+
     match /users/{uid} {
-      allow read: if isAuth();
+      allow read: if isUser(uid) || sharesHouseholdWith(uid);
       allow create: if isUser(uid);
-      allow update: if isUser(uid);
+      allow update: if isUser(uid) || isAdminClearingUserHousehold(uid);
       allow delete: if false;
     }
 
-    // Households
     match /households/{householdId} {
-      allow read: if isAuth() && isHouseholdMember(householdId);
-      allow create: if isAuth();
-      allow update: if isHouseholdAdmin(householdId);
+      allow read: if isHouseholdMember(householdId);
+      allow create: if isAuth()
+        && request.resource.data.adminId == request.auth.uid
+        && request.resource.data.members is list
+        && request.auth.uid in request.resource.data.members;
+      allow update: if isHouseholdParentOrAdmin(householdId) || (
+        isAuth() &&
+        request.auth.uid in request.resource.data.members &&
+        request.resource.data.adminId == resource.data.adminId &&
+        request.resource.data.inviteCode == resource.data.inviteCode
+      );
       allow delete: if isHouseholdAdmin(householdId);
 
-      // Tasks subcollection
       match /tasks/{taskId} {
         allow read: if isHouseholdMember(householdId);
-        allow create: if isHouseholdMember(householdId);
-        allow update: if isHouseholdMember(householdId);
-        allow delete: if isHouseholdAdmin(householdId);
+        allow create: if isHouseholdParentOrAdmin(householdId);
+        allow update: if isHouseholdParentOrAdmin(householdId) || (
+          isHouseholdChild(householdId) &&
+          resource.data.assignedToId == request.auth.uid &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['isComplete', 'isCompleted', 'completedAt', 'completedById'])
+        ) || (
+          isHouseholdMember(householdId) &&
+          resource.data.assignedToId == request.auth.uid &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['isComplete', 'isCompleted', 'completedAt', 'completedById'])
+        );
+        allow delete: if isHouseholdParentOrAdmin(householdId);
       }
 
-      // Invitations subcollection
-      match /invitations/{invitationId} {
+      match /expenses/{expenseId} {
+        allow read, create: if isHouseholdMember(householdId);
+        allow update: if isHouseholdParentOrAdmin(householdId) ||
+          (isHouseholdMember(householdId) && resource.data.createdBy == request.auth.uid);
+        allow delete: if isHouseholdParentOrAdmin(householdId) ||
+          (isHouseholdMember(householdId) && resource.data.createdBy == request.auth.uid);
+      }
+
+      match /settlements/{settlementId} {
+        allow read, create: if isHouseholdMember(householdId);
+        allow update, delete: if isHouseholdParentOrAdmin(householdId) || isHouseholdMember(householdId);
+      }
+
+      match /medicines/{medicineId} {
+        allow read, create: if isHouseholdMember(householdId);
+        allow update, delete: if isHouseholdParentOrAdmin(householdId) || (
+          isHouseholdMember(householdId) &&
+          (resource.data.createdBy == request.auth.uid || resource.data.assignedTo == request.auth.uid)
+        );
+
+        match /doses/{doseId} {
+          allow read, create, update: if isHouseholdMember(householdId);
+          allow delete: if isHouseholdParentOrAdmin(householdId) || isHouseholdMember(householdId);
+        }
+      }
+
+      match /sos/{uid} {
+        allow read, create, update: if isHouseholdMember(householdId);
+        allow delete: if false;
+      }
+
+      match /events/{eventId} {
         allow read: if isHouseholdMember(householdId);
         allow create: if isHouseholdMember(householdId);
-        allow update: if isAuth(); // recipient can accept/decline
-        allow delete: if isHouseholdAdmin(householdId);
+        allow update, delete: if isHouseholdParentOrAdmin(householdId) ||
+          (isHouseholdMember(householdId) && resource.data.createdBy == request.auth.uid);
+      }
+
+      match /invitations/{invitationId} {
+        allow read, create: if isHouseholdParentOrAdmin(householdId);
+        allow update: if isHouseholdParentOrAdmin(householdId) || isInvitationRecipient();
+        allow delete: if isHouseholdParentOrAdmin(householdId);
+      }
+
+      match /inviteCodes/{code} {
+        allow read: if isAuth() && request.time < resource.data.expiresAt;
+        allow create, delete: if isHouseholdParentOrAdmin(householdId);
+        allow update: if false;
+      }
+
+      match /mealPlan/{weekId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create, update, delete: if isHouseholdParentOrAdmin(householdId);
+      }
+
+      match /recipes/{recipeId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create, update, delete: if isHouseholdParentOrAdmin(householdId);
+      }
+
+      match /notes/{noteId} {
+        allow read, create, update, delete: if isHouseholdMember(householdId);
+      }
+
+      match /locations/{uid} {
+        allow read: if isHouseholdMember(householdId);
+        allow create, update: if isHouseholdMember(householdId) && request.auth.uid == uid;
+        allow delete: if request.auth.uid == uid || isHouseholdParentOrAdmin(householdId);
+      }
+
+      match /settings/{settingId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create, update, delete: if isHouseholdParentOrAdmin(householdId);
+      }
+
+      match /lists/{listId} {
+        allow read, create, update: if isHouseholdMember(householdId);
+        allow delete: if isHouseholdParentOrAdmin(householdId);
+
+        match /items/{itemId} {
+          allow read, create, update: if isHouseholdMember(householdId);
+          allow delete: if isHouseholdMember(householdId);
+        }
+      }
+
+      match /messages/{messageId} {
+        allow read, create, update: if isHouseholdMember(householdId);
+        allow delete: if isHouseholdParentOrAdmin(householdId) ||
+          (isHouseholdMember(householdId) && resource.data.senderId == request.auth.uid);
       }
     }
 
-    // Household Members
     match /householdMembers/{memberId} {
-      allow read: if isAuth();
-      allow create: if isAuth();
-      allow update: if isHouseholdAdmin(resource.data.householdId);
-      allow delete: if isHouseholdAdmin(resource.data.householdId)
-                    || isUser(resource.data.userId); // member can leave
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        isHouseholdMember(resource.data.householdId)
+      );
+      allow create: if isAuth() && (
+        request.resource.data.userId == request.auth.uid ||
+        isHouseholdParentOrAdmin(request.resource.data.householdId)
+      );
+      allow update: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        isHouseholdParentOrAdmin(resource.data.householdId)
+      );
+      allow delete: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        isHouseholdParentOrAdmin(resource.data.householdId)
+      );
+    }
+
+    match /globalInvitations/{invitationId} {
+      allow read: if isAuth() && (
+        resource.data.senderId == request.auth.uid ||
+        isInvitationRecipient()
+      );
+      allow create: if isAuth() &&
+        request.resource.data.senderId == request.auth.uid &&
+        isHouseholdMember(request.resource.data.householdId);
+      allow update: if isAuth() && (
+        resource.data.senderId == request.auth.uid ||
+        isInvitationRecipient()
+      );
+      allow delete: if false;
     }
   }
 }

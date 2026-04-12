@@ -5,6 +5,7 @@ class HouseholdModel {
   final String name;
   final String adminId;
   final Map<String, dynamic> admin;
+  final List<String> members;
   final String? description;
   final String inviteCode;
   final Timestamp createdAt;
@@ -14,6 +15,7 @@ class HouseholdModel {
     required this.name,
     required this.adminId,
     required this.admin,
+    required this.members,
     this.description,
     required this.inviteCode,
     required this.createdAt,
@@ -24,6 +26,7 @@ class HouseholdModel {
         'name': name,
         'adminId': adminId,
         'admin': admin,
+        'members': members,
         'description': description,
         'inviteCode': inviteCode,
         'createdAt': createdAt,
@@ -34,6 +37,7 @@ class HouseholdModel {
         name: map['name'] ?? '',
         adminId: map['adminId'] ?? '',
         admin: Map<String, dynamic>.from(map['admin'] ?? {}),
+        members: List<String>.from(map['members'] ?? const []),
         description: map['description'],
         inviteCode: map['inviteCode'] ?? '',
         createdAt: map['createdAt'] ?? Timestamp.now(),

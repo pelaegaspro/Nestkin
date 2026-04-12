@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "540538475566",
+    "project_id": "nestkin-3aaa5",
+    "storage_bucket": "nestkin-3aaa5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:540538475566:android:6dca2ab7957a5080a2fbbf",
+        "android_client_info": {
+          "package_name": "com.nestkin.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "540538475566-e0s7ufugo35kc48dhbe5jragf5aiufcp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nestkin.app",
+            "certificate_hash": "997bbf9c58db3a6fa7b411b03242b434f8520dc6"
+          }
+        },
+        {
+          "client_id": "540538475566-rmmnel5ecok9crsv31nl1lceo09i3lrd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nestkin.app",
+            "certificate_hash": "41a5b9e1d5778899aabbccddeeff112233445566"
+          }
+        },
+        {
+          "client_id": "540538475566-bko390qkir0n1h7mjggfsl3euq5lcjf6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFFXLRUwcnfhIVodG6oaRXAponzNRxQZc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "540538475566-bko390qkir0n1h7mjggfsl3euq5lcjf6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "540538475566-eimm7vtbusi48alcpqd2f60gr9elldhl.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.nestkin"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

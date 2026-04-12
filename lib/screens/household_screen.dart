@@ -1,10 +1,21 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
 import '../services/firestore_service.dart';
+import '../services/invite_code_service.dart';
 import 'home_screen.dart';
+import 'invitations_screen.dart';
 
 class HouseholdScreen extends StatefulWidget {
-  const HouseholdScreen({super.key});
+  final bool skipAutoCheck;
+  final String? accessMessage;
+
+  const HouseholdScreen({
+    super.key,
+    this.skipAutoCheck = false,
+    this.accessMessage,
+  });
+
   @override
   State<HouseholdScreen> createState() => _HouseholdScreenState();
 }
@@ -13,6 +24,7 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
   final _fs = FirestoreService();
+  final _inviteCodeService = InviteCodeService();
   bool _loading = false;
   String? _error;
 
@@ -21,22 +33,38 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
   @override
   void initState() {
     super.initState();
-    _checkExistingHousehold();
-  }
-
-  Future<void> _checkExistingHousehold() async {
-    final households = await _fs.getUserHouseholds(_uid);
-    if (households.isNotEmpty && mounted) {
-      _goHome(households.first.householdId, households.first.household['name']);
+    if (!widget.skipAutoCheck) {
+      _checkExistingHousehold();
     }
   }
 
-  void _goHome(String householdId, String householdName) {
+  Future<void> _checkExistingHousehold() async {
+    final user = await _fs.getUser(_uid);
+    if (!mounted) return;
+
+    if (user?.currentHouseholdId != null &&
+        user!.currentHouseholdId!.isNotEmpty) {
+      final households = await _fs.getUserHouseholds(_uid);
+      final current = households
+          .where((h) => h.householdId == user.currentHouseholdId)
+          .toList();
+      if (current.isNotEmpty) {
+        _goHome(current.first.householdId);
+        return;
+      }
+    }
+
+    final households = await _fs.getUserHouseholds(_uid);
+    if (households.isNotEmpty && mounted) {
+      _goHome(households.first.householdId);
+    }
+  }
+
+  void _goHome(String householdId) {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            HomeScreen(householdId: householdId, householdName: householdName),
+        builder: (_) => HomeScreen(householdId: householdId),
       ),
     );
   }
@@ -47,14 +75,17 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
       _loading = true;
       _error = null;
     });
+
     try {
       final householdId =
           await _fs.createHousehold(_nameController.text.trim(), _uid);
-      if (mounted) _goHome(householdId, _nameController.text.trim());
+      if (!mounted) return;
+      _goHome(householdId);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
@@ -65,40 +96,73 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
       _loading = true;
       _error = null;
     });
+
     try {
+      final normalizedCode = _codeController.text.trim().toUpperCase();
+      final user = await _fs.getUser(_uid);
+      final redeemedHouseholdId = user == null
+          ? null
+          : await _inviteCodeService.redeemInviteCode(
+              code: normalizedCode,
+              user: user,
+            );
+
+      if (redeemedHouseholdId != null) {
+        if (!mounted) return;
+        _goHome(redeemedHouseholdId);
+        return;
+      }
+
       final householdId = await _fs.joinHousehold(
-        _codeController.text.trim().toUpperCase(),
+        normalizedCode,
         _uid,
       );
+
       if (householdId == null) {
         setState(() {
           _loading = false;
-          _error = 'Invalid invite code';
+          _error = 'Invalid invite code.';
         });
         return;
       }
-      final households = await _fs.getUserHouseholds(_uid);
-      final joined = households.firstWhere((h) => h.householdId == householdId);
-      if (mounted) _goHome(joined.householdId, joined.household['name']);
+
+      if (!mounted) return;
+      _goHome(householdId);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final message = _error ?? widget.accessMessage;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Create or Join Household')),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+            if (message != null)
+              Text(
+                message,
+                style: TextStyle(
+                  color: widget.accessMessage != null && _error == null
+                      ? Colors.orange.shade800
+                      : Colors.red,
+                ),
+              ),
             const SizedBox(height: 12),
             TextField(
               controller: _nameController,
@@ -130,6 +194,23 @@ class _HouseholdScreenState extends State<HouseholdScreen> {
                 onPressed: _loading ? null : _joinHousehold,
                 child: const Text('Join Household'),
               ),
+            ),
+            const Divider(height: 40),
+            TextButton.icon(
+              icon: const Icon(Icons.mail_outline),
+              label: const Text('Check for Invitations'),
+              onPressed: () {
+                final user = FirebaseAuth.instance.currentUser!;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => InvitationsScreen(
+                      phoneNumber: user.phoneNumber ?? '',
+                      userId: user.uid,
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),

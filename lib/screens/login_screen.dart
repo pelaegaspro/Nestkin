@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.authService, this.showLogo = true});
+
+  final AuthService? authService;
+  final bool showLogo;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -11,26 +15,47 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
-  final _authService = AuthService();
+  late final AuthService _authService;
 
   String? _verificationId;
+  int? _resendToken;
   bool _codeSent = false;
   bool _loading = false;
+  bool _otpTimedOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _authService = widget.authService ?? AuthService();
+  }
 
   Future<void> _sendOTP() async {
     if (_phoneController.text.trim().isEmpty) return;
     setState(() => _loading = true);
     await _authService.sendOTP(
       phoneNumber: _phoneController.text.trim(),
-      onCodeSent: (id) => setState(() {
+      forceResendingToken: _resendToken,
+      onCodeSent: (id, resendToken) => setState(() {
         _verificationId = id;
+        _resendToken = resendToken;
         _codeSent = true;
+        _otpTimedOut = false;
         _loading = false;
       }),
+      onTimeout: (id) {
+        if (!mounted) return;
+        setState(() {
+          _verificationId = id;
+          _otpTimedOut = true;
+          _loading = false;
+        });
+      },
       onError: (e) {
+        if (!mounted) return;
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e), backgroundColor: Colors.redAccent),
+        );
       },
     );
   }
@@ -46,8 +71,12 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -70,29 +99,31 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Logo Section with a subtle glow
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.white.withOpacity(0.1),
-                          blurRadius: 40,
-                          spreadRadius: 10,
+                  if (widget.showLogo) ...[
+                    // Logo Section with a subtle glow
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.1),
+                            blurRadius: 40,
+                            spreadRadius: 10,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(32),
+                        child: Image.asset(
+                          'assets/images/nestkin_logo.png',
+                          height: 180,
+                          fit: BoxFit.contain,
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(32),
-                      child: Image.asset(
-                        'assets/images/nestkin_logo.png',
-                        height: 180,
-                        fit: BoxFit.contain,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 40),
-                  
+                    const SizedBox(height: 40),
+                  ],
+
                   // Main White Card
                   Container(
                     width: double.infinity,
@@ -102,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(30),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
+                          color: Colors.black.withValues(alpha: 0.2),
                           blurRadius: 25,
                           offset: const Offset(0, 15),
                         ),
@@ -133,7 +164,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 30),
-                        
                         if (!_codeSent) ...[
                           TextField(
                             controller: _phoneController,
@@ -141,8 +171,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: const TextStyle(fontSize: 16),
                             decoration: InputDecoration(
                               labelText: 'Phone Number',
-                              hintText: '+91 XXXXX XXXXX',
-                              prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF0B5C68)),
+                              hintText: '+91XXXXXXXXXX or 7604991136',
+                              prefixIcon: const Icon(Icons.phone_android,
+                                  color: Color(0xFF0B5C68)),
                               filled: true,
                               fillColor: Colors.grey[100],
                               border: OutlineInputBorder(
@@ -150,6 +181,15 @@ class _LoginScreenState extends State<LoginScreen> {
                                 borderSide: BorderSide.none,
                               ),
                             ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            '10-digit Indian numbers are automatically converted to +91 format.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 20),
                           ElevatedButton(
@@ -167,17 +207,24 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ? const SizedBox(
                                     height: 20,
                                     width: 20,
-                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2),
                                   )
-                                : const Text('Send Verification Code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                : const Text('Send Verification Code',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold)),
                           ),
                         ] else ...[
                           TextField(
                             controller: _otpController,
                             keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
-                            letterSpacing: 8,
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 8,
+                            ),
                             decoration: InputDecoration(
                               labelText: '6-Digit OTP',
                               filled: true,
@@ -200,56 +247,105 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             child: _loading
-                                ? const CircularProgressIndicator(color: Colors.white)
-                                : const Text('Verify & Continue', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white)
+                                : const Text('Verify & Continue',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold)),
                           ),
                           TextButton(
-                            onPressed: () => setState(() => _codeSent = false),
-                            child: const Text('Change Number', style: TextStyle(color: Color(0xFF0B5C68))),
+                            onPressed: () => setState(() {
+                              _codeSent = false;
+                              _otpTimedOut = false;
+                              _verificationId = null;
+                              _resendToken = null;
+                            }),
+                            child: const Text('Change Number',
+                                style: TextStyle(color: Color(0xFF0B5C68))),
+                          ),
+                          if (_otpTimedOut)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Code timed out. You can request a new one.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[800],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          TextButton(
+                            onPressed: _loading ? null : _sendOTP,
+                            child: const Text(
+                              'Resend Code',
+                              style: TextStyle(color: Color(0xFF0B5C68)),
+                            ),
                           ),
                         ],
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 30),
-                  
+
                   // External Google Authentication Section
                   Row(
                     children: [
-                      Expanded(child: Divider(color: Colors.white.withOpacity(0.3))),
+                      Expanded(
+                          child: Divider(
+                              color: Colors.white.withValues(alpha: 0.3))),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 15),
-                        child: Text('OR CONNECT WITH', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12, letterSpacing: 1.2)),
+                        child: Text(
+                          'OR CONNECT WITH',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 12,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
                       ),
-                      Expanded(child: Divider(color: Colors.white.withOpacity(0.3))),
+                      Expanded(
+                          child: Divider(
+                              color: Colors.white.withValues(alpha: 0.3))),
                     ],
                   ),
                   const SizedBox(height: 25),
-                  
+
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: _loading
                           ? null
                           : () async {
+                              final messenger = ScaffoldMessenger.of(context);
                               setState(() => _loading = true);
                               try {
                                 await _authService.signInWithGoogle();
                               } catch (e) {
                                 if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(e
+                                        .toString()
+                                        .replaceFirst('Exception: ', '')),
+                                    backgroundColor: Colors.redAccent,
+                                  ),
                                 );
                               } finally {
                                 if (mounted) setState(() => _loading = false);
                               }
                             },
-                      icon: Image.network(
-                        'https://uxwing.com/wp-content/themes/uxwing/download/brands-and-social-media/google-color-icon.png',
-                        height: 24,
+                      icon: const Icon(
+                        Icons.account_circle,
+                        size: 24,
+                        color: Color(0xFF0B5C68),
                       ),
-                      label: const Text('Continue with Google', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      label: const Text('Continue with Google',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
                         backgroundColor: Colors.white,
                         foregroundColor: Colors.black87,
@@ -264,7 +360,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 20),
                   Text(
                     'By continuing, you agree to our Terms and Privacy Policy',
-                    style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 11,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -274,5 +373,12 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _otpController.dispose();
+    super.dispose();
   }
 }
